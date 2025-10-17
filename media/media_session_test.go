@@ -4,6 +4,7 @@
 package media
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -105,6 +106,9 @@ func TestMediaSessionExternalIP(t *testing.T) {
 	}
 
 	data := m.LocalSDP()
+
+	fmt.Println(string(data))
+
 	sd, err := sdp.FromString(data)
 	require.NoError(t, err)
 
@@ -154,7 +158,8 @@ a=rtpmap:101 telephone-event/8000
 a=fmtp:101 0-16
 a=ptime:20
 a=maxptime:20
-a=sendrecv`
+a=sendrecv
+`
 
 	m := MediaSession{
 		Codecs: []Codec{
@@ -196,7 +201,8 @@ a=rtpmap:101 telephone-event/8000
 a=fmtp:101 0-16
 a=ptime:20
 a=maxptime:20
-a=sendrecv`
+a=sendrecv
+`
 
 		m = *m.Fork()
 		err = m.RemoteSDP([]byte(sd))
@@ -217,7 +223,8 @@ s=Sip Go Media
 c=IN IP4 192.168.178.54
 t=0 0
 m=audio 34391 RTP/UNKNOWN 0 8
-a=sendrecv`
+a=sendrecv
+`
 
 		m := MediaSession{
 			Codecs: []Codec{
@@ -237,7 +244,8 @@ s=Sip Go Media
 c=IN IP4 192.168.178.54
 t=0 0
 m=audio 34391 RTP/AVP 0 8
-a=sendrecv`
+a=sendrecv
+`
 
 		m := MediaSession{
 			Codecs: []Codec{
@@ -257,7 +265,8 @@ s=Sip Go Media
 c=IN IP4 192.168.178.54
 t=0 0
 m=audio 34391 RTP/SAVP 0 8
-a=sendrecv`
+a=sendrecv
+`
 
 		m := MediaSession{
 			Codecs: []Codec{
@@ -281,7 +290,8 @@ c=IN IP4 192.168.178.54
 t=0 0
 m=audio 34391 RTP/SAVP 0 8
 a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:8Dlz/SyzlAKCZwH49w5DX8S4pDa7Lw0n3LTI4t6Z
-a=sendrecv`
+a=sendrecv
+`
 
 		m := MediaSession{
 			Codecs: []Codec{

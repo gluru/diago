@@ -7,7 +7,7 @@ import (
 	"net"
 	"testing"
 
-	psdp "github.com/pion/sdp/v2"
+	psdp "github.com/pion/sdp/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,15 +32,16 @@ a=rtcp-mux
 	assert.Equal(t, sd.ConnectionInformation.Address.String(), "10.6.13.138")
 
 	assert.Equal(t, 1, len(sd.MediaDescriptions))
-	assert.Equal(t, 36600, sd.MediaDescriptions[0].MediaName.Port.Value)
-	assert.Equal(t, "audio", sd.MediaDescriptions[0].MediaName.Media)
-	assert.Equal(t, []string{"RTP", "AVP"}, sd.MediaDescriptions[0].MediaName.Protos)
-	assert.Equal(t, []string{"0", "101", "8", "3"}, sd.MediaDescriptions[0].MediaName.Formats)
-	require.Equal(t, 4, len(sd.MediaDescriptions[0].Attributes))
+	md := sd.MediaDescriptions[0]
+	assert.Equal(t, 36600, md.MediaName.Port.Value)
+	assert.Equal(t, "audio", md.MediaName.Media)
+	assert.Equal(t, []string{"RTP", "AVP"}, md.MediaName.Protos)
+	assert.Equal(t, []string{"0", "101", "8", "3"}, md.MediaName.Formats)
+	require.Equal(t, 4, len(md.Attributes))
 
 	attrs := []string{psdp.AttrKeySendRecv, psdp.AttrKeyRTCPMux}
 	for _, attr := range attrs {
-		_, ok := sd.MediaDescriptions[0].Attribute(attr)
+		_, ok := md.Attribute(attr)
 		assert.True(t, ok)
 	}
 }

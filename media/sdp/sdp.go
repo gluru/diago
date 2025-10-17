@@ -4,7 +4,7 @@
 package sdp
 
 import (
-	psdp "github.com/pion/sdp/v2"
+	psdp "github.com/pion/sdp/v3"
 )
 
 func FromString(body []byte) (*psdp.SessionDescription, error) {

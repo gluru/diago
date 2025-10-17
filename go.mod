@@ -12,7 +12,7 @@ require (
 	github.com/pion/rtcp v1.2.15
 	github.com/pion/rtp v1.8.18
 	github.com/pion/srtp/v3 v3.0.6
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/zaf/g711 v1.4.0
 	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302
 )
@@ -28,6 +28,7 @@ require (
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/sdp v1.3.0 // indirect
 	github.com/pion/sdp/v2 v2.4.0 // indirect
+	github.com/pion/sdp/v3 v3.0.16 // indirect
 	github.com/pion/transport/v3 v3.0.7 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
