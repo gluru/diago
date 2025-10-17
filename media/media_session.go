@@ -328,7 +328,7 @@ func (s *MediaSession) RemoteSDP(sdpReceived []byte) error {
 	codecs := make([]Codec, len(md.MediaName.Formats))
 	attrs := []string{}
 	for _, attr := range md.Attributes {
-		attrs = append(attrs, fmt.Sprintf("%s: %s", attr.Key, attr.Value))
+		attrs = append(attrs, fmt.Sprintf("%s:%s", attr.Key, attr.Value))
 	}
 
 	n, err := CodecsFromSDPRead(md.MediaName.Formats, attrs, codecs)
@@ -337,7 +337,6 @@ func (s *MediaSession) RemoteSDP(sdpReceived []byte) error {
 			// Nothing parsed, break
 			return err
 		}
-
 		return fmt.Errorf("reading codecs from SDP was not full: %w", err)
 	}
 	if n == 0 {

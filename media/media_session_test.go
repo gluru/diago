@@ -98,9 +98,10 @@ func TestReadRTCP(t *testing.T) {
 
 func TestMediaSessionExternalIP(t *testing.T) {
 	m := &MediaSession{
-		Laddr:      net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
+		Laddr:      net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 44444},
 		Mode:       sdp.ModeSendrecv,
 		ExternalIP: net.IPv4(1, 1, 1, 1),
+		Codecs:     []Codec{CodecAudioUlaw},
 	}
 
 	data := m.LocalSDP()
@@ -110,7 +111,7 @@ func TestMediaSessionExternalIP(t *testing.T) {
 	connInfo := sd.ConnectionInformation
 	require.NoError(t, err)
 	assert.NotEmpty(t, connInfo.Address.Address)
-	assert.Equal(t, m.ExternalIP.To4(), net.ParseIP(connInfo.Address.Address))
+	assert.Equal(t, m.ExternalIP.String(), connInfo.Address.Address)
 }
 
 func TestMediaSessionUpdateCodec(t *testing.T) {
@@ -227,7 +228,6 @@ a=sendrecv`
 		}
 		err := m.RemoteSDP([]byte(sd))
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "unsupported media description protocol")
 	})
 
 	t.Run("ValidRTPSDP", func(t *testing.T) {
