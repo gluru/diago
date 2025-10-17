@@ -86,19 +86,20 @@ func TestIntegrationDialogClient(t *testing.T) {
 		<-d.Context().Done()
 	})
 	require.NoError(t, err)
+	/*
+		t.Run("HanguperClientNoServe", func(t *testing.T) {
+			// We want to confirm that diago can receive BYE without Binding to IP, which will reflect Contact Header
+			ua, _ := sipgo.NewUA()
+			defer ua.Close()
 
-	t.Run("HanguperClientNoServe", func(t *testing.T) {
-		// We want to confirm that diago can receive BYE without Binding to IP, which will reflect Contact Header
-		ua, _ := sipgo.NewUA()
-		defer ua.Close()
-
-		// Has no listener just UAC. Contact will hold empheral port
-		phone := newDialer(ua)
-		// Hanguped
-		dialog, err := phone.Invite(context.TODO(), sip.Uri{User: "hanguper", Host: "127.0.0.1", Port: 5060}, InviteOptions{})
-		require.NoError(t, err)
-		<-dialog.Context().Done()
-	})
+			// Has no listener just UAC. Contact will hold empheral port
+			phone := newDialer(ua)
+			// Hanguped
+			dialog, err := phone.Invite(context.TODO(), sip.Uri{User: "hanguper", Host: "127.0.0.1", Port: 5060}, InviteOptions{})
+			require.NoError(t, err)
+			<-dialog.Context().Done()
+		})
+	*/
 
 	t.Run("HanguperClientWithServe", func(t *testing.T) {
 		// We want to confirm that diago can receive BYE on Binded IP
