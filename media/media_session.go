@@ -170,31 +170,6 @@ func (s *MediaSession) InitWithListeners(lRTP net.PacketConn, lRTCP net.PacketCo
 	s.SetRemoteAddr(raddr)
 }
 
-// InitWithSDP allows creating media session with own SDP and bypassing other needs
-func (s *MediaSession) InitWithSDP(localSDP []byte) error {
-	s.sdp = localSDP
-	sd := sdp.SessionDescription{}
-	if err := sdp.Unmarshal(localSDP, &sd); err != nil {
-		return fmt.Errorf("fail to parse received SDP: %w", err)
-	}
-
-	ci, err := sd.ConnectionInformation()
-	if err != nil {
-		return err
-	}
-	md, err := sd.MediaDescription("audio")
-	if err != nil {
-		return err
-	}
-	s.Laddr = net.UDPAddr{IP: ci.IP, Port: md.Port}
-	s.Mode = sdp.ModeSendrecv
-	// TODO check sendrecv from attributes
-	codecs := make([]Codec, len(md.Formats))
-	n, _ := CodecsFromSDPRead(md.Formats, sd.Values("a"), codecs)
-	s.Codecs = codecs[:n]
-	return nil
-}
-
 func (s *MediaSession) StopRTP(rw int8, dur time.Duration) error {
 	t := time.Now().Add(dur)
 	if rw&1 > 0 {
@@ -329,29 +304,34 @@ func (s *MediaSession) LocalSDP() []byte {
 }
 
 func (s *MediaSession) RemoteSDP(sdpReceived []byte) error {
-	sd := sdp.SessionDescription{}
-	if err := sdp.Unmarshal(sdpReceived, &sd); err != nil {
-		return fmt.Errorf("fail to parse received SDP: %w", err)
-	}
-
-	md, err := sd.MediaDescription("audio")
+	sd, err := sdp.FromString(sdpReceived)
 	if err != nil {
 		return err
 	}
 
+	if len(sd.MediaDescriptions) == 0 {
+		return fmt.Errorf("no media descriptions found on SDP.")
+	}
+
+	md := sd.MediaDescriptions[0]
+
 	// Confirm it is supported profile
 	secureRequest := false
-	switch md.Proto {
+	switch strings.Join(md.MediaName.Protos, "/") {
 	case "RTP/AVP":
 	case "RTP/SAVP":
 		secureRequest = true
 	default:
-		return fmt.Errorf("unsupported media description protocol proto=%s", md.Proto)
+		return fmt.Errorf("unsupported media description protocol proto=%s", md.MediaName.Protos)
 	}
 
-	codecs := make([]Codec, len(md.Formats))
-	attrs := sd.Values("a")
-	n, err := CodecsFromSDPRead(md.Formats, attrs, codecs)
+	codecs := make([]Codec, len(md.MediaName.Formats))
+	attrs := []string{}
+	for _, attr := range md.Attributes {
+		attrs = append(attrs, fmt.Sprintf("%s: %s", attr.Key, attr.Value))
+	}
+
+	n, err := CodecsFromSDPRead(md.MediaName.Formats, attrs, codecs)
 	if err != nil {
 		if n == 0 {
 			// Nothing parsed, break
@@ -368,10 +348,13 @@ func (s *MediaSession) RemoteSDP(sdpReceived []byte) error {
 		return fmt.Errorf("no supported codecs found")
 	}
 
-	ci, err := sd.ConnectionInformation()
-	if err != nil {
-		return err
+	ci := sd.ConnectionInformation
+	if md.ConnectionInformation != nil {
+		// If there is connection information for this particular Media
+		// description use it.
+		ci = md.ConnectionInformation
 	}
+
 	// Check for SDES
 	for _, v := range attrs {
 		if strings.HasPrefix(v, "crypto:") {
@@ -421,10 +404,13 @@ func (s *MediaSession) RemoteSDP(sdpReceived []byte) error {
 	}
 
 	if secureRequest && s.remoteCtxSRTP == nil {
-		return fmt.Errorf("remote requested secure RTP, but no context is created proto=%s", md.Proto)
+		return fmt.Errorf("remote requested secure RTP, but no context is created proto=%s", md.MediaName.Protos)
 	}
 
-	s.SetRemoteAddr(&net.UDPAddr{IP: ci.IP, Port: md.Port})
+	s.SetRemoteAddr(&net.UDPAddr{
+		IP:   net.ParseIP(ci.Address.Address),
+		Port: md.MediaName.Port.Value,
+	})
 	return nil
 }
 

@@ -104,14 +104,13 @@ func TestMediaSessionExternalIP(t *testing.T) {
 	}
 
 	data := m.LocalSDP()
-	sd := sdp.SessionDescription{}
-	err := sdp.Unmarshal(data, &sd)
+	sd, err := sdp.FromString(data)
 	require.NoError(t, err)
 
-	connInfo, err := sd.ConnectionInformation()
+	connInfo := sd.ConnectionInformation
 	require.NoError(t, err)
-	assert.NotEmpty(t, connInfo.IP.To4())
-	assert.Equal(t, m.ExternalIP.To4(), connInfo.IP.To4())
+	assert.NotEmpty(t, connInfo.Address.Address)
+	assert.Equal(t, m.ExternalIP.To4(), net.ParseIP(connInfo.Address.Address))
 }
 
 func TestMediaSessionUpdateCodec(t *testing.T) {
@@ -174,11 +173,13 @@ a=sendrecv`
 	assert.Equal(t, CodecTelephoneEvent8000, m.filterCodecs[3])
 
 	lsdp := m.LocalSDP()
-	lsd := sdp.SessionDescription{}
-	sdp.Unmarshal(lsdp, &lsd)
+	lsd, err := sdp.FromString(lsdp)
+	assert.Nil(t, err)
 
-	// Check that order is preserved from offerrer
-	assert.Equal(t, "audio 1234 RTP/AVP 0 8 96 101", lsd.Value("m"))
+	assert.Equal(t, "audio", lsd.MediaDescriptions[0].MediaName.Media)
+	assert.Equal(t, 1234, lsd.MediaDescriptions[0].MediaName.Port.Value)
+	assert.Equal(t, []string{"RTP", "AVP"}, lsd.MediaDescriptions[0].MediaName.Protos)
+	assert.Equal(t, []string{"0", "8", "96", "101"}, lsd.MediaDescriptions[0].MediaName.Formats)
 
 	// Test forking
 	{
