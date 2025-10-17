@@ -98,20 +98,21 @@ func TestReadRTCP(t *testing.T) {
 
 func TestMediaSessionExternalIP(t *testing.T) {
 	m := &MediaSession{
-		Laddr:      net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
+		Laddr:      net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 44444},
 		Mode:       sdp.ModeSendrecv,
 		ExternalIP: net.IPv4(1, 1, 1, 1),
+		Codecs:     []Codec{CodecAudioUlaw, CodecAudioAlaw, CodecTelephoneEvent8000},
 	}
 
 	data := m.LocalSDP()
-	sd := sdp.SessionDescription{}
-	err := sdp.Unmarshal(data, &sd)
+
+	sd, err := sdp.FromString(data)
 	require.NoError(t, err)
 
-	connInfo, err := sd.ConnectionInformation()
+	connInfo := sd.ConnectionInformation
 	require.NoError(t, err)
-	assert.NotEmpty(t, connInfo.IP.To4())
-	assert.Equal(t, m.ExternalIP.To4(), connInfo.IP.To4())
+	assert.NotEmpty(t, connInfo.Address.Address)
+	assert.Equal(t, m.ExternalIP.String(), connInfo.Address.Address)
 }
 
 func TestMediaSessionUpdateCodec(t *testing.T) {
@@ -154,7 +155,8 @@ a=rtpmap:101 telephone-event/8000
 a=fmtp:101 0-16
 a=ptime:20
 a=maxptime:20
-a=sendrecv`
+a=sendrecv
+`
 
 	m := MediaSession{
 		Codecs: []Codec{
@@ -174,11 +176,13 @@ a=sendrecv`
 	assert.Equal(t, CodecTelephoneEvent8000, m.filterCodecs[3])
 
 	lsdp := m.LocalSDP()
-	lsd := sdp.SessionDescription{}
-	sdp.Unmarshal(lsdp, &lsd)
+	lsd, err := sdp.FromString(lsdp)
+	assert.Nil(t, err)
 
-	// Check that order is preserved from offerrer
-	assert.Equal(t, "audio 1234 RTP/AVP 0 8 96 101", lsd.Value("m"))
+	assert.Equal(t, "audio", lsd.MediaDescriptions[0].MediaName.Media)
+	assert.Equal(t, 1234, lsd.MediaDescriptions[0].MediaName.Port.Value)
+	assert.Equal(t, []string{"RTP", "AVP"}, lsd.MediaDescriptions[0].MediaName.Protos)
+	assert.Equal(t, []string{"0", "8", "96", "101"}, lsd.MediaDescriptions[0].MediaName.Formats)
 
 	// Test forking
 	{
@@ -194,7 +198,8 @@ a=rtpmap:101 telephone-event/8000
 a=fmtp:101 0-16
 a=ptime:20
 a=maxptime:20
-a=sendrecv`
+a=sendrecv
+`
 
 		m = *m.Fork()
 		err = m.RemoteSDP([]byte(sd))
@@ -215,7 +220,8 @@ s=Sip Go Media
 c=IN IP4 192.168.178.54
 t=0 0
 m=audio 34391 RTP/UNKNOWN 0 8
-a=sendrecv`
+a=sendrecv
+`
 
 		m := MediaSession{
 			Codecs: []Codec{
@@ -226,7 +232,6 @@ a=sendrecv`
 		}
 		err := m.RemoteSDP([]byte(sd))
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "unsupported media description protocol")
 	})
 
 	t.Run("ValidRTPSDP", func(t *testing.T) {
@@ -236,7 +241,8 @@ s=Sip Go Media
 c=IN IP4 192.168.178.54
 t=0 0
 m=audio 34391 RTP/AVP 0 8
-a=sendrecv`
+a=sendrecv
+`
 
 		m := MediaSession{
 			Codecs: []Codec{
@@ -256,7 +262,8 @@ s=Sip Go Media
 c=IN IP4 192.168.178.54
 t=0 0
 m=audio 34391 RTP/SAVP 0 8
-a=sendrecv`
+a=sendrecv
+`
 
 		m := MediaSession{
 			Codecs: []Codec{
@@ -280,7 +287,8 @@ c=IN IP4 192.168.178.54
 t=0 0
 m=audio 34391 RTP/SAVP 0 8
 a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:8Dlz/SyzlAKCZwH49w5DX8S4pDa7Lw0n3LTI4t6Z
-a=sendrecv`
+a=sendrecv
+`
 
 		m := MediaSession{
 			Codecs: []Codec{

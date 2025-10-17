@@ -116,13 +116,12 @@ func TestDiagoTransportConfs(t *testing.T) {
 		req := <-reqCh
 
 		// parse SDP
-		sd := sdp.SessionDescription{}
-		require.NoError(t, sdp.Unmarshal(req.Body(), &sd))
-		connInfo, err := sd.ConnectionInformation()
+		sd, err := sdp.FromString(req.Body())
 		require.NoError(t, err)
+		connInfo := sd.ConnectionInformation
 
 		assert.Equal(t, tc.expectedContactHostPort, req.Contact().Address.HostPort())
-		assert.Equal(t, tc.expectedMediaHost, connInfo.IP.String())
+		assert.Equal(t, tc.expectedMediaHost, connInfo.Address.Address)
 	}
 
 	t.Run("ExternalHost", func(t *testing.T) {
@@ -174,7 +173,7 @@ func TestDiagoTransportConfs(t *testing.T) {
 
 func TestDiagoNewDialog(t *testing.T) {
 	dg := testDiagoClient(t, func(req *sip.Request) *sip.Response {
-		body := sdp.GenerateForAudio(net.IPv4(127, 0, 0, 1), net.IPv4(127, 0, 0, 1), 34455, sdp.ModeSendrecv, []string{sdp.FORMAT_TYPE_ALAW})
+		body := sdp.GenAudio(net.IPv4(127, 0, 0, 1), net.IPv4(127, 0, 0, 1), 34455, sdp.ModeSendrecv, []string{sdp.FORMAT_TYPE_ALAW})
 		return sip.NewResponseFromRequest(req, 200, "OK", body)
 	})
 	ctx := context.TODO()

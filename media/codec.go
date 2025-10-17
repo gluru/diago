@@ -14,12 +14,24 @@ import (
 	"github.com/emiago/diago/media/sdp"
 )
 
+/*
+
+type Codec struct {
+	PayloadType        uint8
+	Name               string
+	ClockRate          uint32
+	EncodingParameters string
+	Fmtp               string
+	RTCPFeedback       []string
+}
+*/
+
 var (
 	// Here are some codec constants that can be reused
 	CodecAudioUlaw          = Codec{PayloadType: 0, SampleRate: 8000, SampleDur: 20 * time.Millisecond, NumChannels: 1, Name: "PCMU"}
 	CodecAudioAlaw          = Codec{PayloadType: 8, SampleRate: 8000, SampleDur: 20 * time.Millisecond, NumChannels: 1, Name: "PCMA"}
 	CodecAudioOpus          = Codec{PayloadType: 96, SampleRate: 48000, SampleDur: 20 * time.Millisecond, NumChannels: 2, Name: "opus"}
-	CodecTelephoneEvent8000 = Codec{PayloadType: 101, SampleRate: 8000, SampleDur: 20 * time.Millisecond, NumChannels: 1, Name: "telephone-event"}
+	CodecTelephoneEvent8000 = Codec{PayloadType: 101, SampleRate: 8000, SampleDur: 20 * time.Millisecond, NumChannels: 1, Name: "telephone-event", Fmtp: "101 0-16"}
 )
 
 type Codec struct {
@@ -28,6 +40,7 @@ type Codec struct {
 	SampleRate  uint32
 	SampleDur   time.Duration
 	NumChannels int // 1 or 2
+	Fmtp        string
 }
 
 func (c *Codec) String() string {
@@ -54,7 +67,6 @@ func CodecAudioFromSession(s *MediaSession) Codec {
 	if !exists {
 		return s.Codecs[0]
 	}
-
 	return codec
 }
 
@@ -63,10 +75,8 @@ func CodecAudioFromList(codecs []Codec) (Codec, bool) {
 		if codec.Name == "telephone-event" {
 			continue
 		}
-
 		return codec, true
 	}
-
 	return Codec{}, false
 }
 

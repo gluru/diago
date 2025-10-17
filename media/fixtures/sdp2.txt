@@ -1,0 +1,13 @@
+v=0
+o=- 17049754096671686595 17049754096671686595 IN IP4 10.1.0.235
+s=Sip Go Media
+c=IN IP4 34.38.43.227
+t=0 0
+m=audio 35419 RTP/AVP 0 8 101
+a=rtpmap:0 PCMU/8000
+a=rtpmap:8 PCMA/8000
+a=rtpmap:101 telephone-event/8000
+a=fmtp:101 0-16
+a=ptime:20
+a=maxptime:20
+a=sendrecv

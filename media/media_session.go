@@ -21,6 +21,8 @@ import (
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/srtp/v3"
+
+	psdp "github.com/pion/sdp/v3"
 )
 
 var (
@@ -40,6 +42,12 @@ var (
 	// Experimental
 	RTPProfileSAVPDisable = false
 )
+
+type sdesInline struct {
+	alg    string
+	base64 string
+	tag    int
+}
 
 func logRTPRead(m *MediaSession, raddr net.Addr, p *rtp.Packet) {
 	if RTPDebug {
@@ -138,7 +146,7 @@ func NewMediaSession(ip net.IP, port int) (s *MediaSession, e error) {
 // Init should be called if session is created manually
 // Use NewMediaSession for default building
 func (s *MediaSession) Init() error {
-	if s.Codecs == nil || len(s.Codecs) == 0 {
+	if s.Codecs == nil {
 		return fmt.Errorf("media session: formats can not be empty")
 	}
 
@@ -168,31 +176,6 @@ func (s *MediaSession) InitWithListeners(lRTP net.PacketConn, lRTCP net.PacketCo
 	laddr, port, _ := sip.ParseAddr(lRTCP.LocalAddr().String())
 	s.Laddr = net.UDPAddr{IP: net.ParseIP(laddr), Port: port}
 	s.SetRemoteAddr(raddr)
-}
-
-// InitWithSDP allows creating media session with own SDP and bypassing other needs
-func (s *MediaSession) InitWithSDP(localSDP []byte) error {
-	s.sdp = localSDP
-	sd := sdp.SessionDescription{}
-	if err := sdp.Unmarshal(localSDP, &sd); err != nil {
-		return fmt.Errorf("fail to parse received SDP: %w", err)
-	}
-
-	ci, err := sd.ConnectionInformation()
-	if err != nil {
-		return err
-	}
-	md, err := sd.MediaDescription("audio")
-	if err != nil {
-		return err
-	}
-	s.Laddr = net.UDPAddr{IP: ci.IP, Port: md.Port}
-	s.Mode = sdp.ModeSendrecv
-	// TODO check sendrecv from attributes
-	codecs := make([]Codec, len(md.Formats))
-	n, _ := CodecsFromSDPRead(md.Formats, sd.Values("a"), codecs)
-	s.Codecs = codecs[:n]
-	return nil
 }
 
 func (s *MediaSession) StopRTP(rw int8, dur time.Duration) error {
@@ -251,7 +234,7 @@ func (s *MediaSession) SetRemoteAddr(raddr *net.UDPAddr) {
 	s.Raddr = *raddr
 	s.rtcpRaddr = net.UDPAddr{
 		IP:   raddr.IP,
-		Port: raddr.Port + 1,
+		Port: raddr.Port + 1, // ???
 		Zone: raddr.Zone,
 	}
 }
@@ -259,16 +242,56 @@ func (s *MediaSession) SetRemoteAddr(raddr *net.UDPAddr) {
 // LocalSDP generates SDP based on local settings and remote SDP
 // It should never be called in parallel to RemoteSDP, as it is expected serial process
 func (s *MediaSession) LocalSDP() []byte {
-	if len(s.sdp) > 0 {
-		// If media session is static then just return sdp.
-		return s.sdp
+
+	ntpTime := sdp.GetCurrentNTPTimestamp()
+
+	externalIP := s.ExternalIP
+	if externalIP == nil {
+		externalIP = s.Laddr.IP
 	}
 
-	ip := s.Laddr.IP
-	rtpPort := s.Laddr.Port
-	connIP := s.ExternalIP
-	if connIP == nil {
-		connIP = ip
+	sd := psdp.SessionDescription{
+		SessionName: psdp.SessionName("Sip Go Media"),
+		TimeDescriptions: []psdp.TimeDescription{
+			{
+				Timing: psdp.Timing{
+					StartTime: 0,
+					StopTime:  0,
+				},
+			},
+		},
+		Origin: psdp.Origin{
+			Username:       "-",
+			SessionID:      ntpTime,
+			SessionVersion: ntpTime,
+
+			AddressType:    "IP4",
+			NetworkType:    "IN",
+			UnicastAddress: s.Laddr.IP.String(),
+		},
+		ConnectionInformation: &psdp.ConnectionInformation{
+			AddressType: "IP4",
+			NetworkType: "IN",
+			Address: &psdp.Address{
+				Address: externalIP.String(),
+			},
+		},
+	}
+
+	protos := []string{"RTP", "SAVP"}
+
+	if !RTPProfileSAVPDisable {
+		protos = []string{"RTP", "AVP"}
+	}
+
+	md := &psdp.MediaDescription{
+		MediaName: psdp.MediaName{
+			Media: "audio",
+			Port: psdp.RangedPort{
+				Value: s.Laddr.Port,
+			},
+			Protos: protos,
+		},
 	}
 
 	// https://datatracker.ietf.org/doc/html/rfc3264#section-6.1
@@ -283,8 +306,17 @@ func (s *MediaSession) LocalSDP() []byte {
 		codecs = s.filterCodecs
 	}
 
-	var localSDES sdesInline
-	rtpProfile := "RTP/AVP"
+	for _, c := range codecs {
+		md.WithCodec(c.PayloadType, c.Name, c.SampleRate, uint16(c.NumChannels), c.Fmtp)
+	}
+
+	// Thse should not be hardcoded.
+	md.Attributes = append(md.Attributes, psdp.NewAttribute("ptime", "20"))
+	md.Attributes = append(md.Attributes, psdp.NewAttribute("maxptime", "20"))
+	md.Attributes = append(md.Attributes, psdp.NewAttribute(sdp.ModeSendrecv, ""))
+
+	sd.MediaDescriptions = []*psdp.MediaDescription{md}
+
 	if s.SecureRTP == 1 {
 		err := func() error {
 			// TODO detect algorithm
@@ -296,7 +328,7 @@ func (s *MediaSession) LocalSDP() []byte {
 			masterKey, masterSalt := keysalt[:keyLen], keysalt[keyLen:]
 
 			inline := base64.StdEncoding.EncodeToString(keysalt)
-			localSDES = sdesInline{
+			sdes := sdesInline{
 				alg:    srtpProfileString(profile),
 				base64: inline,
 				tag:    1,
@@ -311,53 +343,57 @@ func (s *MediaSession) LocalSDP() []byte {
 
 			if s.srtpRemoteTag > 0 {
 				// Match remote tag if exists
-				localSDES.tag = s.srtpRemoteTag
+				sdes.tag = s.srtpRemoteTag
 			}
 
-			// NOTE: For some compatibility reasons (like asterisk) it would be required that this stays on RTP/AVP
-			if !RTPProfileSAVPDisable {
-				rtpProfile = "RTP/SAVP"
-			}
+			md.Attributes = append(
+				md.Attributes,
+				psdp.NewAttribute("crypto", fmt.Sprintf("%d %s inline:%s", sdes.tag, sdes.alg, sdes.base64)),
+			)
 			return nil
 		}()
 		if err != nil {
 			DefaultLogger().Error("Failed to setup SRTP context", "error", err)
 		}
 	}
-
-	return generateSDPForAudio(rtpProfile, ip, connIP, rtpPort, s.Mode, codecs, localSDES)
+	sdp, _ := sd.Marshal()
+	return sdp
 }
 
 func (s *MediaSession) RemoteSDP(sdpReceived []byte) error {
-	sd := sdp.SessionDescription{}
-	if err := sdp.Unmarshal(sdpReceived, &sd); err != nil {
-		return fmt.Errorf("fail to parse received SDP: %w", err)
-	}
-
-	md, err := sd.MediaDescription("audio")
+	sd, err := sdp.FromString(sdpReceived)
 	if err != nil {
 		return err
 	}
 
+	if len(sd.MediaDescriptions) == 0 {
+		return fmt.Errorf("no media descriptions found on SDP.")
+	}
+
+	md := sd.MediaDescriptions[0]
+
 	// Confirm it is supported profile
 	secureRequest := false
-	switch md.Proto {
+	switch strings.Join(md.MediaName.Protos, "/") {
 	case "RTP/AVP":
 	case "RTP/SAVP":
 		secureRequest = true
 	default:
-		return fmt.Errorf("unsupported media description protocol proto=%s", md.Proto)
+		return fmt.Errorf("unsupported media description protocol proto=%s", md.MediaName.Protos)
 	}
 
-	codecs := make([]Codec, len(md.Formats))
-	attrs := sd.Values("a")
-	n, err := CodecsFromSDPRead(md.Formats, attrs, codecs)
+	codecs := make([]Codec, len(md.MediaName.Formats))
+	attrs := []string{}
+	for _, attr := range md.Attributes {
+		attrs = append(attrs, fmt.Sprintf("%s:%s", attr.Key, attr.Value))
+	}
+
+	n, err := CodecsFromSDPRead(md.MediaName.Formats, attrs, codecs)
 	if err != nil {
 		if n == 0 {
 			// Nothing parsed, break
 			return err
 		}
-
 		return fmt.Errorf("reading codecs from SDP was not full: %w", err)
 	}
 	if n == 0 {
@@ -368,10 +404,13 @@ func (s *MediaSession) RemoteSDP(sdpReceived []byte) error {
 		return fmt.Errorf("no supported codecs found")
 	}
 
-	ci, err := sd.ConnectionInformation()
-	if err != nil {
-		return err
+	ci := sd.ConnectionInformation
+	if md.ConnectionInformation != nil {
+		// If there is connection information for this particular Media
+		// description use it.
+		ci = md.ConnectionInformation
 	}
+
 	// Check for SDES
 	for _, v := range attrs {
 		if strings.HasPrefix(v, "crypto:") {
@@ -421,10 +460,13 @@ func (s *MediaSession) RemoteSDP(sdpReceived []byte) error {
 	}
 
 	if secureRequest && s.remoteCtxSRTP == nil {
-		return fmt.Errorf("remote requested secure RTP, but no context is created proto=%s", md.Proto)
+		return fmt.Errorf("remote requested secure RTP, but no context is created proto=%s", md.MediaName.Protos)
 	}
 
-	s.SetRemoteAddr(&net.UDPAddr{IP: ci.IP, Port: md.Port})
+	s.SetRemoteAddr(&net.UDPAddr{
+		IP:   net.ParseIP(ci.Address.Address),
+		Port: md.MediaName.Port.Value,
+	})
 	return nil
 }
 
@@ -437,7 +479,7 @@ func (s *MediaSession) updateRemoteCodecs(codecs []Codec) int {
 	filter := codecs[:0] // reuse buffer
 	for _, rc := range codecs {
 		for _, c := range s.Codecs {
-			if c == rc {
+			if c.Name == rc.Name && c.PayloadType == rc.PayloadType {
 				filter = append(filter, c)
 				break
 			}
@@ -776,87 +818,6 @@ func StringRTCP(p rtcp.Packet) string {
 		return s.String()
 	}
 	return "can not stringify"
-}
-
-type sdesInline struct {
-	alg    string
-	base64 string
-	tag    int
-}
-
-func generateSDPForAudio(rtpProfile string, originIP net.IP, connectionIP net.IP, rtpPort int, mode string, codecs []Codec, sdes sdesInline) []byte {
-	ntpTime := GetCurrentNTPTimestamp()
-
-	fmts := make([]string, len(codecs))
-	formatsMap := []string{}
-	for i, f := range codecs {
-		// TODO should we just go generic
-		switch f.PayloadType {
-		case CodecAudioUlaw.PayloadType:
-			formatsMap = append(formatsMap, "a=rtpmap:0 PCMU/8000")
-		case CodecAudioAlaw.PayloadType:
-			formatsMap = append(formatsMap, "a=rtpmap:8 PCMA/8000")
-		case CodecAudioOpus.PayloadType:
-			formatsMap = append(formatsMap, "a=rtpmap:96 opus/48000/2")
-			// Providing 0 when FEC cannot be used on the receiving side is RECOMMENDED.
-			// https://datatracker.ietf.org/doc/html/rfc7587
-			formatsMap = append(formatsMap, "a=fmtp:96 useinbandfec=0")
-		case CodecTelephoneEvent8000.PayloadType:
-			formatsMap = append(formatsMap, "a=rtpmap:101 telephone-event/8000")
-			formatsMap = append(formatsMap, "a=fmtp:101 0-16")
-		default:
-			s := fmt.Sprintf("a=rtpmap:%d %s/%d/%d", f.PayloadType, f.Name, f.SampleRate, f.NumChannels)
-			formatsMap = append(formatsMap, s)
-		}
-		fmts[i] = strconv.Itoa(int(f.PayloadType))
-	}
-
-	// Support only ulaw and alaw
-	// TODO optimize this with string builder
-	s := []string{
-		"v=0",
-		fmt.Sprintf("o=- %d %d IN IP4 %s", ntpTime, ntpTime, originIP),
-		"s=Sip Go Media",
-		// "b=AS:84",
-		fmt.Sprintf("c=IN IP4 %s", connectionIP),
-		"t=0 0",
-		fmt.Sprintf("m=audio %d %s %s", rtpPort, rtpProfile, strings.Join(fmts, " ")),
-	}
-
-	s = append(s, formatsMap...)
-	s = append(s,
-		"a=ptime:20", // Needed for opus
-		"a=maxptime:20",
-		"a="+string(mode))
-
-	if sdes.alg != "" {
-		s = append(s, fmt.Sprintf("a=crypto:%d %s inline:%s", sdes.tag, sdes.alg, sdes.base64))
-	}
-	// s := []string{
-	// 	"v=0",
-	// 	fmt.Sprintf("o=- %d %d IN IP4 %s", ntpTime, ntpTime, originIP),
-	// 	"s=Sip Go Media",
-	// 	// "b=AS:84",
-	// 	fmt.Sprintf("c=IN IP4 %s", connectionIP),
-	// 	"t=0 0",
-	// 	fmt.Sprintf("m=audio %d RTP/AVP 96 97 98 99 3 0 8 9 120 121 122", rtpPort),
-	// 	"a=" + string(mode),
-	// 	"a=rtpmap:96 speex/16000",
-	// 	"a=rtpmap:97 speex/8000",
-	// 	"a=rtpmap:98 speex/32000",
-	// 	"a=rtpmap:99 iLBC/8000",
-	// 	"a=fmtp:99 mode=30",
-	// 	"a=rtpmap:120 telephone-event/16000",
-	// 	"a=fmtp:120 0-16",
-	// 	"a=rtpmap:121 telephone-event/8000",
-	// 	"a=fmtp:121 0-16",
-	// 	"a=rtpmap:122 telephone-event/32000",
-	// 	"a=rtcp-mux",
-	// 	fmt.Sprintf("a=rtcp:%d IN IP4 %s", rtpPort+1, connectionIP),
-	// }
-
-	res := strings.Join(s, "\r\n") + "\r\n"
-	return []byte(res)
 }
 
 func generateMasterKeySalt(profile srtp.ProtectionProfile) ([]byte, int, error) {

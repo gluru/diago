@@ -11,8 +11,9 @@ require (
 	github.com/icholy/digest v1.1.0
 	github.com/pion/rtcp v1.2.15
 	github.com/pion/rtp v1.8.18
+	github.com/pion/sdp/v3 v3.0.16
 	github.com/pion/srtp/v3 v3.0.6
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/zaf/g711 v1.4.0
 	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302
 )
