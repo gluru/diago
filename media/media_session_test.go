@@ -4,7 +4,6 @@
 package media
 
 import (
-	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -102,12 +101,10 @@ func TestMediaSessionExternalIP(t *testing.T) {
 		Laddr:      net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 44444},
 		Mode:       sdp.ModeSendrecv,
 		ExternalIP: net.IPv4(1, 1, 1, 1),
-		Codecs:     []Codec{CodecAudioUlaw},
+		Codecs:     []Codec{CodecAudioUlaw, CodecAudioAlaw, CodecTelephoneEvent8000},
 	}
 
 	data := m.LocalSDP()
-
-	fmt.Println(string(data))
 
 	sd, err := sdp.FromString(data)
 	require.NoError(t, err)
